@@ -10,7 +10,7 @@
     DB_PORT=5432
     DB_DATABASE=booking_db
     DB_USERNAME=postgres
-    DB_PASSWORD=password_bebas
+    DB_PASSWORD=
     ```
 
 2. Jalankan container:
