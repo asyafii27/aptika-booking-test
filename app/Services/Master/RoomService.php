@@ -2,6 +2,7 @@
 
 namespace App\Services\Master;
 
+use App\Enums\BookingStatus;
 use App\Models\Master\Room;
 use App\Services\GeneralService\CommonService;
 use Exception;
@@ -27,19 +28,38 @@ class RoomService extends CommonService
         }
     }
 
-    public function show(int $id)
+    public function available(array $inputs)
     {
-        try {
-            $room = Room::find($id);
+        $validator = Validator::make($inputs, $this->availableRules(), $this->availableMessages());
 
-            if (! $room) {
-                return $this->errorResponse('ROOM_NOT_FOUND', 'Room tidak ditemukan', 404);
+        if ($validator->fails()) {
+            return $this->validationErrorResponse($validator);
+        }
+
+        $data = $validator->validated();
+
+        try {
+            $query = Room::query()
+                ->where('is_active', true)
+                ->whereDoesntHave('bookings', function (Builder $booking) use ($data) {
+                    $booking->where('status', BookingStatus::Confirmed)
+                        ->where('start_time', '<', $data['end_time'])
+                        ->where('end_time', '>', $data['start_time']);
+                });
+
+            if (! empty($data['capacity'])) {
+                $query->where('capacity', '>=', $data['capacity']);
             }
 
-            return $this->successResponse($room);
+            $query = $this->generalFilter($query, $inputs);
+            $query = generalSortData($query, $inputs);
+
+            $results = setPaginationOrNone($query, $inputs);
+
+            return $results;
         } catch (Exception $e) {
-            Log::error(recapErrorLog('Failed to get room detail', $e));
-            return $this->errorResponse('ROOM_FETCH_FAILED', recapErrorResponse('Gagal mengambil detail room: ', $e), 422);
+            Log::error(recapErrorLog('Failed to get available room', $e));
+            return $this->errorResponse('ROOM_FETCH_FAILED', recapErrorResponse('Gagal mengambil data room tersedia: ', $e), 422);
         }
     }
 
@@ -85,28 +105,6 @@ class RoomService extends CommonService
         }
     }
 
-    public function destroy(int $id)
-    {
-        try {
-            $room = Room::find($id);
-
-            if (! $room) {
-                return $this->errorResponse('ROOM_NOT_FOUND', 'Room tidak ditemukan', 404);
-            }
-
-            if ($room->bookings()->exists()) {
-                return $this->errorResponse('ROOM_HAS_BOOKINGS', 'Room tidak dapat dihapus karena masih memiliki booking', 409);
-            }
-
-            $room->delete();
-
-            return $this->successResponse(['message' => 'Room berhasil dihapus']);
-        } catch (Exception $e) {
-            Log::error(recapErrorLog('Failed to delete room', $e));
-            return $this->errorResponse('ROOM_DELETE_FAILED', recapErrorResponse('Gagal menghapus room: ', $e), 422);
-        }
-    }
-
     protected function rules(): array
     {
         return [
@@ -122,6 +120,28 @@ class RoomService extends CommonService
             'name.string' => 'Nama room harus berupa teks',
             'name.max' => 'Nama room maksimal 100 karakter',
             'capacity.required' => 'Kapasitas wajib diisi',
+            'capacity.integer' => 'Kapasitas harus berupa angka bulat',
+            'capacity.min' => 'Kapasitas minimal 1',
+        ];
+    }
+
+    protected function availableRules(): array
+    {
+        return [
+            'start_time' => ['required', 'date_format:Y-m-d H:i:s'],
+            'end_time' => ['required', 'date_format:Y-m-d H:i:s', 'after:start_time'],
+            'capacity' => ['nullable', 'integer', 'min:1'],
+        ];
+    }
+
+    protected function availableMessages(): array
+    {
+        return [
+            'start_time.required' => 'Waktu mulai wajib diisi',
+            'start_time.date_format' => 'Format waktu mulai harus Y-m-d H:i:s',
+            'end_time.required' => 'Waktu selesai wajib diisi',
+            'end_time.date_format' => 'Format waktu selesai harus Y-m-d H:i:s',
+            'end_time.after' => 'Waktu selesai harus setelah waktu mulai',
             'capacity.integer' => 'Kapasitas harus berupa angka bulat',
             'capacity.min' => 'Kapasitas minimal 1',
         ];

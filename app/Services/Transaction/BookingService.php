@@ -36,26 +36,6 @@ class BookingService extends CommonService
         }
     }
 
-    public function show(int $id, User $user)
-    {
-        try {
-            $booking = Booking::with(['room:id,name,capacity', 'user:id,name,email'])->find($id);
-
-            if (!$booking) {
-                return $this->errorResponse('BOOKING_NOT_FOUND', 'Booking tidak ditemukan', 404);
-            }
-
-            if (!$this->canAccess($booking, $user)) {
-                return $this->errorResponse('FORBIDDEN', 'Anda tidak memiliki akses ke booking ini', 403);
-            }
-
-            return $this->successResponse($booking);
-        } catch (Exception $e) {
-            Log::error(recapErrorLog('Failed to get booking detail', $e));
-            return $this->errorResponse('BOOKING_FETCH_FAILED', recapErrorResponse('Gagal mengambil detail booking: ', $e), 422);
-        }
-    }
-
     public function store(array $inputs, User $user)
     {
         $validator = Validator::make($inputs, $this->rules(), $this->messages());
@@ -92,52 +72,6 @@ class BookingService extends CommonService
         }
     }
 
-    public function update(int $id, array $inputs, User $user)
-    {
-        $validator = Validator::make($inputs, $this->rules(), $this->messages());
-
-        if ($validator->fails()) {
-            return $this->validationErrorResponse($validator);
-        }
-
-        $data = $validator->validated();
-
-        try {
-            return DB::transaction(function () use ($id, $data, $user) {
-                $booking = Booking::lockForUpdate()->find($id);
-
-                if (!$booking) {
-                    return $this->errorResponse('BOOKING_NOT_FOUND', 'Booking tidak ditemukan', 404);
-                }
-
-                if (!$this->canAccess($booking, $user)) {
-                    return $this->errorResponse('FORBIDDEN', 'Anda tidak memiliki akses ke booking ini', 403);
-                }
-
-                if ($booking->status === BookingStatus::Cancelled) {
-                    return $this->errorResponse('BOOKING_CANCELLED', 'Booking yang sudah dibatalkan tidak dapat diubah', 422);
-                }
-
-                $room = Room::lockForUpdate()->find($data['room_id']);
-
-                if (!$room->is_active) {
-                    return $this->errorResponse('ROOM_INACTIVE', 'Room sedang tidak aktif', 422);
-                }
-
-                if ($this->hasOverlap($data['room_id'], $data['start_time'], $data['end_time'], $booking->id)) {
-                    return $this->errorResponse('BOOKING_CONFLICT', 'Room sudah dibooking pada rentang waktu tersebut', 409);
-                }
-
-                $booking->update($data);
-
-                return $this->successResponse($booking->refresh()->load(['room:id,name,capacity', 'user:id,name,email']));
-            });
-        } catch (Exception $e) {
-            Log::error(recapErrorLog('Failed to update booking', $e));
-            return $this->errorResponse('BOOKING_UPDATE_FAILED', recapErrorResponse('Gagal mengubah booking: ', $e), 422);
-        }
-    }
-
     public function cancel(int $id, User $user)
     {
         try {
@@ -161,28 +95,6 @@ class BookingService extends CommonService
         } catch (Exception $e) {
             Log::error(recapErrorLog('Failed to cancel booking', $e));
             return $this->errorResponse('BOOKING_CANCEL_FAILED', recapErrorResponse('Gagal membatalkan booking: ', $e), 422);
-        }
-    }
-
-    public function destroy(int $id, User $user)
-    {
-        try {
-            $booking = Booking::find($id);
-
-            if (!$booking) {
-                return $this->errorResponse('BOOKING_NOT_FOUND', 'Booking tidak ditemukan', 404);
-            }
-
-            if (!$this->canAccess($booking, $user)) {
-                return $this->errorResponse('FORBIDDEN', 'Anda tidak memiliki akses ke booking ini', 403);
-            }
-
-            $booking->delete();
-
-            return $this->successResponse(['message' => 'Booking berhasil dihapus']);
-        } catch (Exception $e) {
-            Log::error(recapErrorLog('Failed to delete booking', $e));
-            return $this->errorResponse('BOOKING_DELETE_FAILED', recapErrorResponse('Gagal menghapus booking: ', $e), 422);
         }
     }
 
@@ -243,13 +155,12 @@ class BookingService extends CommonService
         return $query;
     }
 
-    private function hasOverlap(int $roomId, string $startTime, string $endTime, ?int $exceptId = null): bool
+    private function hasOverlap(int $roomId, string $startTime, string $endTime): bool
     {
         return Booking::where('room_id', $roomId)
             ->where('status', BookingStatus::Confirmed)
             ->where('start_time', '<', $endTime)
             ->where('end_time', '>', $startTime)
-            ->when($exceptId, fn(Builder $query) => $query->where('id', '!=', $exceptId))
             ->exists();
     }
 

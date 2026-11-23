@@ -17,6 +17,13 @@ class RoomController extends Controller
         return $this->roomService->index($inputs);
     }
 
+    public function available(Request $request)
+    {
+        $inputs = $request->all();
+
+        return $this->roomService->available($inputs);
+    }
+
     public function store(Request $request)
     {
         $inputs = $request->all();
@@ -24,20 +31,10 @@ class RoomController extends Controller
         return $this->roomService->store($inputs);
     }
 
-    public function show(int $id)
-    {
-        return $this->roomService->show($id);
-    }
-
     public function update(Request $request, int $id)
     {
         $inputs = $request->all();
 
         return $this->roomService->update($id, $inputs);
-    }
-
-    public function destroy(int $id)
-    {
-        return $this->roomService->destroy($id);
     }
 }
